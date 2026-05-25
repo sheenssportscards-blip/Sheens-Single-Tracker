@@ -1,4 +1,4 @@
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -8,7 +8,6 @@ export default async function handler(req, res) {
   const { token, query, condition, limit = 50 } = req.body;
   if (!token || !query) return res.status(400).json({ error: 'Missing params' });
 
-  // Build search query with condition appended
   const condMap = { psa9: 'PSA 9', psa10: 'PSA 10', bgs95: 'BGS 9.5', raw: '' };
   const condSuffix = condMap[condition] || '';
   const fullQuery = condSuffix ? `${query} ${condSuffix}` : query;
@@ -35,3 +34,4 @@ export default async function handler(req, res) {
   const data = await response.json();
   if (!response.ok) return res.status(response.status).json(data);
   return res.status(200).json(data);
+};
