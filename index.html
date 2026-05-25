@@ -1955,6 +1955,8 @@ async function runSearch() {
       const price = parseFloat(item.price?.value || 0);
       const title = item.title || '';
       const titleLower = title.toLowerCase();
+      const image = item.image?.imageUrl || item.thumbnailImages?.[0]?.imageUrl || null;
+      const itemUrl = item.itemWebUrl || null;
 
       // Detect condition from title
       let conditionKey = 'raw';
@@ -1966,14 +1968,13 @@ async function runSearch() {
       else if (titleLower.includes('sgc')) { conditionKey = 'sgc10'; conditionLabel = 'SGC'; }
       else if (titleLower.includes('psa')) { conditionKey = 'psa9'; conditionLabel = 'PSA'; }
 
-      // Calculate days ago from listingEndDate or itemEndDate
       const endDate = item.listingEndDate || item.itemEndDate;
       let daysAgo = 0;
       if (endDate) {
         daysAgo = Math.round((Date.now() - new Date(endDate).getTime()) / 86400000);
       }
 
-      return { title, condition: conditionLabel, conditionKey, price, daysAgo };
+      return { title, condition: conditionLabel, conditionKey, price, daysAgo, image, itemUrl };
     }).filter(l => l.price > 0);
 
     if (!listings.length) throw new Error('No results found');
@@ -2122,9 +2123,10 @@ function renderSearchResults(data, query) {
       : '—';
     const dStr = l.daysAgo===0?'Today':l.daysAgo===1?'Yesterday':`${l.daysAgo}d ago`;
     const condKey = l.conditionKey||'raw';
-    tbody.innerHTML += `<tr>
-      <td>
-        <div class="card-name" style="font-size:12px;font-weight:500">${l.title}</div>
+    tbody.innerHTML += `<tr style="cursor:${l.itemUrl?'pointer':'default'}" onclick="${l.itemUrl?`window.open('${l.itemUrl}','_blank')`:''}">
+      <td style="display:flex;align-items:center;gap:12px">
+        ${l.image ? `<img src="${l.image}" style="width:48px;height:48px;object-fit:cover;border-radius:6px;border:1px solid var(--border);flex-shrink:0" onerror="this.style.display='none'">` : '<div style="width:48px;height:48px;border-radius:6px;border:1px solid var(--border);background:var(--surface);flex-shrink:0"></div>'}
+        <div class="card-name" style="font-size:12px;font-weight:500">${l.title}${l.itemUrl?'<span style="margin-left:6px;font-size:10px;color:var(--text3)">↗</span>':''}</div>
       </td>
       <td>${condBadge(condKey.replace(/\d.*/,''), condKey.replace(/[a-z]+/i,'').replace('raw','') || null)}<span style="margin-left:4px;font-size:11px;color:var(--text3)">${l.condition}</span></td>
       <td class="val-muted" style="font-size:11px;white-space:nowrap">${dStr}</td>
