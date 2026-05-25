@@ -2431,12 +2431,14 @@ let appFeeRate    = 0.1325;
 
 async function initCredentials() {
   try {
-    const creds = await load('sheens_creds');
+    const raw = localStorage.getItem('sheens_creds');
+    const creds = raw ? JSON.parse(raw) : null;
     if (creds && creds.appId) {
       document.getElementById('cred-app-id').value  = creds.appId  || '';
       document.getElementById('cred-cert-id').value = creds.certId || '';
     }
-    const feeData = await load('sheens_settings');
+    const feeRaw = localStorage.getItem('sheens_settings');
+    const feeData = feeRaw ? JSON.parse(feeRaw) : null;
     if (feeData && feeData.feeRate) {
       appFeeRate = feeData.feeRate / 100;
       document.getElementById('setting-fee-rate').value = feeData.feeRate;
@@ -2449,7 +2451,7 @@ async function saveCredentials() {
   const appId  = document.getElementById('cred-app-id').value.trim();
   const certId = document.getElementById('cred-cert-id').value.trim();
   if (!appId || !certId) { showCredStatus('Enter both App ID and Cert ID', 'var(--red)'); return; }
-  await save('sheens_creds', { appId, certId });
+  localStorage.setItem('sheens_creds', JSON.stringify({ appId, certId }));
   showCredStatus('✓ Saved', 'var(--green)');
 }
 
@@ -2457,7 +2459,7 @@ async function clearCredentials() {
   document.getElementById('cred-app-id').value  = '';
   document.getElementById('cred-cert-id').value = '';
   ebayToken = null; ebayTokenExp = null;
-  await save('sheens_creds', {});
+  localStorage.removeItem('sheens_creds');
   refreshStatusUI();
   showCredStatus('Credentials cleared', 'var(--text3)');
 }
@@ -2466,7 +2468,7 @@ async function saveFeeRate() {
   const rate = parseFloat(document.getElementById('setting-fee-rate').value);
   if (isNaN(rate) || rate < 0) return;
   appFeeRate = rate / 100;
-  await save('sheens_settings', { feeRate: rate });
+  localStorage.setItem('sheens_settings', JSON.stringify({ feeRate: rate }));
   const el = document.getElementById('fee-rate-status');
   el.style.display = 'inline';
   setTimeout(() => { el.style.display = 'none'; }, 2500);
@@ -2493,15 +2495,11 @@ function refreshStatusUI() {
     : '—';
 }
 
-// Get eBay OAuth token (Client Credentials flow — no user login needed for Browse API)
 async function getEbayToken() {
-  // Return cached token if still valid
   if (ebayToken && ebayTokenExp && Date.now() < ebayTokenExp - 60000) return ebayToken;
-
-  const creds = await load('sheens_creds');
+  const raw = localStorage.getItem('sheens_creds');
+  const creds = raw ? JSON.parse(raw) : null;
   if (!creds || !creds.appId || !creds.certId) return null;
-
-  // eBay OAuth needs to go through a proxy to avoid CORS — we use our Vercel endpoint
   try {
     const resp = await fetch('https://sheens-single-tracker.vercel.app/api/ebay-token', {
       method: 'POST',
