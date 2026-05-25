@@ -599,6 +599,24 @@ td { padding: 13px 14px; vertical-align: middle; }
   gap: 10px;
 }
 
+/* ── STATUS DOT ── */
+.status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.status-dot.live {
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+  animation: pulse-dot 2s infinite;
+}
+.status-dot.error { background: var(--red); }
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 /* ── SCROLLBAR ── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -828,6 +846,9 @@ td { padding: 13px 14px; vertical-align: middle; }
       <div class="nav-section-label" style="margin-top:8px">Tools</div>
       <button class="nav-item" onclick="switchTab('calc',this)">
         <span class="nav-icon">◎</span> Calculator
+      </button>
+      <button class="nav-item" onclick="switchTab('settings',this)" style="margin-top:auto">
+        <span class="nav-icon">⚙</span> Settings
       </button>
     </nav>
 
@@ -1387,6 +1408,79 @@ td { padding: 13px 14px; vertical-align: middle; }
                 <span class="rv" id="r-profit">—</span>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ SETTINGS ══ -->
+      <div id="tab-settings" class="panel">
+        <div class="page-header">
+          <div class="page-title"><span class="page-title-accent"></span> Settings</div>
+        </div>
+
+        <!-- eBay API Credentials -->
+        <div class="surface">
+          <div class="surface-title">eBay API Credentials</div>
+          <p style="font-size:13px;color:var(--text2);margin-bottom:18px;line-height:1.6">Your credentials are stored locally in your browser only — they are never sent anywhere except directly to eBay's API servers.</p>
+
+          <div class="form-grid" style="margin-bottom:18px">
+            <div class="field" style="grid-column:span 2">
+              <label>App ID (Client ID)</label>
+              <input type="text" id="cred-app-id" placeholder="e.g. ShawnSpa-SingleTr-PRD-xxxxxxx" autocomplete="off">
+            </div>
+            <div class="field" style="grid-column:span 2">
+              <label>Cert ID (Client Secret)</label>
+              <input type="password" id="cred-cert-id" placeholder="PRD-xxxxxxxxxxxxxxxx" autocomplete="off">
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+            <button class="btn btn-primary" onclick="saveCredentials()">Save Credentials</button>
+            <button class="btn btn-outline" onclick="testCredentials()">Test Connection</button>
+            <button class="btn btn-ghost" onclick="clearCredentials()" style="color:var(--red);border-color:rgba(255,68,102,0.3)">Clear</button>
+            <div id="cred-status" style="font-family:'JetBrains Mono',monospace;font-size:11px;display:none"></div>
+          </div>
+        </div>
+
+        <!-- Connection status -->
+        <div class="surface">
+          <div class="surface-title">API Status</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">
+            <div class="comp-stat-box" id="status-browse">
+              <div class="comp-stat-lbl">Browse API</div>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+                <div class="status-dot" id="dot-browse" style="background:var(--text3)"></div>
+                <div style="font-size:13px;color:var(--text3)" id="label-browse">Not connected</div>
+              </div>
+              <div class="comp-stat-sub">Card search & comps</div>
+            </div>
+            <div class="comp-stat-box" id="status-sell">
+              <div class="comp-stat-lbl">Sell Fulfillment API</div>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+                <div class="status-dot" id="dot-sell" style="background:var(--text3)"></div>
+                <div style="font-size:13px;color:var(--text3)" id="label-sell">Not connected</div>
+              </div>
+              <div class="comp-stat-sub">Your orders & sales</div>
+            </div>
+            <div class="comp-stat-box">
+              <div class="comp-stat-lbl">Token Expires</div>
+              <div style="font-size:13px;color:var(--text3);margin-top:6px" id="label-token-expiry">—</div>
+              <div class="comp-stat-sub">Auto-refreshes on use</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- eBay fee rate -->
+        <div class="surface">
+          <div class="surface-title">eBay Fee Rate</div>
+          <p style="font-size:13px;color:var(--text2);margin-bottom:14px;line-height:1.6">Used for break-even and profit calculations. Default is 13.25% for cards under $7,500. Adjust if you have a store subscription.</p>
+          <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+            <div class="field" style="width:160px">
+              <label>Fee Rate (%)</label>
+              <input type="number" id="setting-fee-rate" value="13.25" step="0.01" min="0" max="100">
+            </div>
+            <button class="btn btn-outline" onclick="saveFeeRate()" style="align-self:flex-end">Save</button>
+            <div id="fee-rate-status" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--green);display:none">✓ Saved</div>
           </div>
         </div>
       </div>
@@ -2330,9 +2424,115 @@ async function confirmSellModal() {
   closeSellModal();
 }
 
+// ── CREDENTIALS & EBAY AUTH ──
+let ebayToken     = null;
+let ebayTokenExp  = null;
+let appFeeRate    = 0.1325;
+
+async function initCredentials() {
+  try {
+    const creds = await load('sheens_creds');
+    if (creds && creds.appId) {
+      document.getElementById('cred-app-id').value  = creds.appId  || '';
+      document.getElementById('cred-cert-id').value = creds.certId || '';
+    }
+    const feeData = await load('sheens_settings');
+    if (feeData && feeData.feeRate) {
+      appFeeRate = feeData.feeRate / 100;
+      document.getElementById('setting-fee-rate').value = feeData.feeRate;
+    }
+    refreshStatusUI();
+  } catch {}
+}
+
+async function saveCredentials() {
+  const appId  = document.getElementById('cred-app-id').value.trim();
+  const certId = document.getElementById('cred-cert-id').value.trim();
+  if (!appId || !certId) { showCredStatus('Enter both App ID and Cert ID', 'var(--red)'); return; }
+  await save('sheens_creds', { appId, certId });
+  showCredStatus('✓ Saved', 'var(--green)');
+}
+
+async function clearCredentials() {
+  document.getElementById('cred-app-id').value  = '';
+  document.getElementById('cred-cert-id').value = '';
+  ebayToken = null; ebayTokenExp = null;
+  await save('sheens_creds', {});
+  refreshStatusUI();
+  showCredStatus('Credentials cleared', 'var(--text3)');
+}
+
+async function saveFeeRate() {
+  const rate = parseFloat(document.getElementById('setting-fee-rate').value);
+  if (isNaN(rate) || rate < 0) return;
+  appFeeRate = rate / 100;
+  await save('sheens_settings', { feeRate: rate });
+  const el = document.getElementById('fee-rate-status');
+  el.style.display = 'inline';
+  setTimeout(() => { el.style.display = 'none'; }, 2500);
+}
+
+function showCredStatus(msg, color) {
+  const el = document.getElementById('cred-status');
+  el.textContent = msg;
+  el.style.color = color;
+  el.style.display = 'inline';
+  setTimeout(() => { el.style.display = 'none'; }, 3000);
+}
+
+function refreshStatusUI() {
+  const connected = ebayToken && ebayTokenExp && Date.now() < ebayTokenExp;
+  ['browse','sell'].forEach(api => {
+    document.getElementById('dot-'+api).className   = 'status-dot' + (connected ? ' live' : '');
+    document.getElementById('dot-'+api).style.background = connected ? '' : 'var(--text3)';
+    document.getElementById('label-'+api).textContent = connected ? 'Connected' : 'Not connected';
+    document.getElementById('label-'+api).style.color = connected ? 'var(--green)' : 'var(--text3)';
+  });
+  document.getElementById('label-token-expiry').textContent = ebayTokenExp
+    ? new Date(ebayTokenExp).toLocaleString()
+    : '—';
+}
+
+// Get eBay OAuth token (Client Credentials flow — no user login needed for Browse API)
+async function getEbayToken() {
+  // Return cached token if still valid
+  if (ebayToken && ebayTokenExp && Date.now() < ebayTokenExp - 60000) return ebayToken;
+
+  const creds = await load('sheens_creds');
+  if (!creds || !creds.appId || !creds.certId) return null;
+
+  // eBay OAuth needs to go through a proxy to avoid CORS — we use our Vercel endpoint
+  try {
+    const resp = await fetch('/api/ebay-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ appId: creds.appId, certId: creds.certId })
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    ebayToken    = data.access_token;
+    ebayTokenExp = Date.now() + (data.expires_in * 1000);
+    refreshStatusUI();
+    return ebayToken;
+  } catch { return null; }
+}
+
+async function testCredentials() {
+  showCredStatus('Testing...', 'var(--text2)');
+  await saveCredentials();
+  const token = await getEbayToken();
+  if (token) {
+    showCredStatus('✓ Connected to eBay', 'var(--green)');
+    refreshStatusUI();
+  } else {
+    showCredStatus('✗ Connection failed — check credentials', 'var(--red)');
+  }
+}
+
 // ── INIT ──
 toggleGrade();
 initInventory();
+initCredentials();
 </script>
 <!-- ══ SELL MODAL ══ -->
 <div id="sell-modal-backdrop" onclick="closeSellModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);z-index:200"></div>
