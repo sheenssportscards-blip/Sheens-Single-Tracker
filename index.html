@@ -1235,6 +1235,11 @@ td { padding: 13px 14px; vertical-align: middle; }
       <div id="tab-sold" class="panel">
         <div class="page-header">
           <div class="page-title"><span class="page-title-accent"></span> Sold</div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <button class="btn btn-outline" onclick="document.getElementById('sold-csv-input').click()">⬆ Import Card Ladder Sold CSV</button>
+            <input type="file" id="sold-csv-input" accept=".csv" style="display:none" onchange="importSoldCSV(event)">
+            <div class="import-msg" id="sold-import-msg">✓ <span id="sold-import-msg-text"></span></div>
+          </div>
         </div>
 
         <!-- Log a sale -->
@@ -2147,6 +2152,96 @@ function renderSoldHistory() {
       <td><button class="btn btn-ghost" onclick="removeSale(${r.id})">✕</button></td>
     </tr>`;
   });
+}
+
+// ── IMPORT SOLD CSV ──
+async function importSoldCSV(event) {
+  const file = event.target.files[0]; if (!file) return;
+  const text = await file.text();
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length < 2) return;
+
+  const headers = parseCSVLine(lines[0]).map(h => h.trim());
+  const idx = h => headers.indexOf(h);
+
+  const iSubject    = idx('Subject');
+  const iYear       = idx('Year');
+  const iSet        = idx('Set');
+  const iVariation  = idx('Variation');
+  const iNumber     = idx('Number');
+  const iCondition  = idx('Condition');
+  const iInvestment = idx('Investment');
+  const iQty        = idx('Quantity');
+  const iDateSold   = idx('Date Sold');
+  const iSoldPrice  = idx('Sold Price');
+  const iNotes      = idx('Notes');
+  const iCategory   = idx('Category');
+
+  let imported = 0;
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseCSVLine(lines[i]);
+    if (!cols[iSubject]) continue;
+
+    const { condition, grade } = parseCondition(cols[iCondition]);
+    const qty       = parseInt(cols[iQty]) || 1;
+    const totalCost = parseFloat(cols[iInvestment]) || 0;
+    const totalSale = parseFloat(cols[iSoldPrice])  || 0;
+    const costEach  = parseFloat((totalCost / qty).toFixed(2));
+    const saleEach  = parseFloat((totalSale / qty).toFixed(2));
+
+    // Card Ladder doesn't distinguish eBay vs cash — default to eBay
+    // Fee is back-calculated: if profit matches (sale - cost) it's cash, else eBay
+    const impliedProfit = parseFloat(cols[idx('Profit')]) || null;
+    const cashNet   = saleEach - costEach;
+    const ebayNet   = saleEach - parseFloat((saleEach * 0.1325).toFixed(2)) - costEach;
+    const channel   = impliedProfit !== null && Math.abs(impliedProfit/qty - cashNet) < 0.10 ? 'cash' : 'ebay';
+    const fee       = channel === 'ebay' ? parseFloat((saleEach * 0.1325).toFixed(2)) : 0;
+    const net       = parseFloat((saleEach - fee - costEach).toFixed(2));
+
+    // Format date from MM/DD/YYYY to YYYY-MM-DD
+    const rawDate = cols[iDateSold] || '';
+    const dateParts = rawDate.split('/');
+    const dateStr = dateParts.length === 3
+      ? `${dateParts[2]}-${dateParts[0].padStart(2,'0')}-${dateParts[1].padStart(2,'0')}`
+      : rawDate;
+
+    const cardSnap = {
+      player:    cols[iSubject]   || '',
+      year:      cols[iYear]      || '',
+      set:       cols[iSet]       || '',
+      variation: cols[iVariation] || '',
+      cardnum:   cols[iNumber]    || '',
+      condition, grade,
+      category:  cols[iCategory]  || '',
+    };
+
+    for (let q = 0; q < qty; q++) {
+      soldRecords.push({
+        id:       Date.now() + i * 100 + q,
+        cardSnap,
+        channel,
+        price:   saleEach,
+        cost:    costEach,
+        fee,
+        net,
+        date:    dateStr,
+        notes:   cols[iNotes] || ''
+      });
+      imported++;
+    }
+  }
+
+  // Sort by date desc
+  soldRecords.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  await save('sheens_sold', soldRecords);
+  renderSoldHistory();
+
+  const msg = document.getElementById('sold-import-msg');
+  document.getElementById('sold-import-msg-text').textContent = `${imported} sale${imported !== 1 ? 's' : ''} imported`;
+  msg.style.display = 'flex';
+  setTimeout(() => { msg.style.display = 'none'; }, 4000);
+  event.target.value = '';
 }
 
 // ── SELL MODAL ──
