@@ -18,6 +18,7 @@ module.exports = async function handler(req, res) {
     filter: 'buyingOptions:{FIXED_PRICE|AUCTION},conditions:{USED|UNGRADED|GRADED}',
     sort: 'endTimeSoonest',
     limit: limit.toString(),
+    fieldgroups: 'MATCHING_ITEMS,EXTENDED'
   });
 
   const response = await fetch(
