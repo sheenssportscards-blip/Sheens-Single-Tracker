@@ -1,10 +1,21 @@
+import { createHash } from 'crypto';
+
 export default function handler(req, res) {
   if (req.method === 'GET') {
-    const challenge = req.query.challenge_code;
-    return res.json({ challengeResponse: challenge });
+    const challengeCode = req.query.challenge_code;
+    const verificationToken = 'SheensTracker2026';
+    const endpoint = 'https://sheens-single-tracker.vercel.app/api/deletion';
+
+    const hash = createHash('sha256');
+    hash.update(challengeCode);
+    hash.update(verificationToken);
+    hash.update(endpoint);
+    const responseHash = hash.digest('hex');
+
+    res.setHeader('Content-Type', 'application/json');
+    return res.status(200).json({ challengeResponse: responseHash });
   }
   if (req.method === 'POST') {
-    console.log('Account deletion notification:', req.body);
     return res.status(200).end();
   }
   res.status(405).end();
