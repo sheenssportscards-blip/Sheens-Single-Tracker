@@ -3,7 +3,7 @@ import { createHash } from 'crypto';
 export default function handler(req, res) {
   if (req.method === 'GET') {
     const challengeCode = req.query.challenge_code;
-    const verificationToken = 'SheensTracker2026';
+    const verificationToken = 'SheensTracker2026SheensTracker2026';
     const endpoint = 'https://sheens-single-tracker.vercel.app/api/deletion';
 
     const hash = createHash('sha256');
