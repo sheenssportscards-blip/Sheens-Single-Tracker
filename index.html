@@ -1930,63 +1930,84 @@ async function runSearch() {
   document.getElementById('s-results').style.display = 'none';
   document.getElementById('s-loading').style.display = 'block';
   document.getElementById('s-btn-text').textContent  = 'Searching...';
-
-  const condLabel = {all:'All Conditions',raw:'Raw',psa9:'PSA 9',psa10:'PSA 10',bgs95:'BGS 9.5'}[condition];
-  const rangeLabel = {week:'last 7 days',month:'last 30 days','90days':'last 90 days',year:'last 12 months'}[range];
-
-  const prompt = `You are an eBay sports card sales data API. Return ONLY valid JSON, no markdown, no explanation.
-
-Generate realistic recent eBay sold listing data for: "${query}"
-Condition filter: ${condLabel}
-Time period: ${rangeLabel}
-
-Generate 18-28 realistic sold listings. Base prices on what this card would realistically sell for.
-For graded cards, PSA 10 should be meaningfully higher than PSA 9, which should be higher than raw.
-Vary prices naturally — some outliers high and low.
-
-Return this exact JSON structure:
-{
-  "cardTitle": "clean display name for the card",
-  "listings": [
-    {
-      "title": "eBay listing title (realistic, ~60 chars)",
-      "condition": "Raw" or "PSA 9" or "PSA 10" or "BGS 9.5" or "SGC 10",
-      "conditionKey": "raw" or "psa9" or "psa10" or "bgs95" or "sgc10",
-      "price": 00.00,
-      "daysAgo": 1-${range==='week'?7:range==='month'?30:range==='90days'?90:365}
-    }
-  ],
-  "summary": {
-    "avgRaw": null or number,
-    "avgPsa9": null or number,
-    "avgPsa10": null or number,
-    "totalSales": number,
-    "priceRange": { "low": number, "high": number }
-  }
-}`;
+  document.getElementById('s-loading-text').textContent = 'Pulling live eBay sold listings...';
 
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    // Get token
+    const token = await getEbayToken();
+    if (!token) {
+      throw new Error('No eBay token — enter credentials in Settings');
+    }
+
+    // Call our Vercel proxy
+    const resp = await fetch('https://sheens-single-tracker.vercel.app/api/ebay-search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        messages: [{ role: 'user', content: prompt }]
-      })
+      body: JSON.stringify({ token, query, condition, limit: 50 })
     });
 
+    if (!resp.ok) throw new Error('Search failed');
     const data = await resp.json();
-    const raw  = data.content?.map(b => b.text || '').join('').replace(/```json|```/g, '').trim();
-    const parsed = JSON.parse(raw);
+
+    // Map eBay Browse API response to our format
+    const items = data.itemSummaries || [];
+    const listings = items.map(item => {
+      const price = parseFloat(item.price?.value || 0);
+      const title = item.title || '';
+      const titleLower = title.toLowerCase();
+
+      // Detect condition from title
+      let conditionKey = 'raw';
+      let conditionLabel = 'Raw';
+      if (titleLower.includes('psa 10') || titleLower.includes('psa10')) { conditionKey = 'psa10'; conditionLabel = 'PSA 10'; }
+      else if (titleLower.includes('psa 9') || titleLower.includes('psa9')) { conditionKey = 'psa9'; conditionLabel = 'PSA 9'; }
+      else if (titleLower.includes('bgs 9.5') || titleLower.includes('bgs9.5')) { conditionKey = 'bgs95'; conditionLabel = 'BGS 9.5'; }
+      else if (titleLower.includes('bgs') || titleLower.includes('beckett')) { conditionKey = 'bgs95'; conditionLabel = 'BGS'; }
+      else if (titleLower.includes('sgc')) { conditionKey = 'sgc10'; conditionLabel = 'SGC'; }
+      else if (titleLower.includes('psa')) { conditionKey = 'psa9'; conditionLabel = 'PSA'; }
+
+      // Calculate days ago from listingEndDate or itemEndDate
+      const endDate = item.listingEndDate || item.itemEndDate;
+      let daysAgo = 0;
+      if (endDate) {
+        daysAgo = Math.round((Date.now() - new Date(endDate).getTime()) / 86400000);
+      }
+
+      return { title, condition: conditionLabel, conditionKey, price, daysAgo };
+    }).filter(l => l.price > 0);
+
+    if (!listings.length) throw new Error('No results found');
+
+    // Build summary
+    const rawItems  = listings.filter(l => l.conditionKey === 'raw');
+    const psa9Items = listings.filter(l => l.conditionKey === 'psa9');
+    const psa10Items= listings.filter(l => l.conditionKey === 'psa10');
+    const avg = arr => arr.length ? arr.reduce((s,l)=>s+l.price,0)/arr.length : null;
+    const prices = listings.map(l => l.price);
+
+    const parsed = {
+      cardTitle: query,
+      listings,
+      summary: {
+        avgRaw:   avg(rawItems),
+        avgPsa9:  avg(psa9Items),
+        avgPsa10: avg(psa10Items),
+        totalSales: listings.length,
+        priceRange: { low: Math.min(...prices), high: Math.max(...prices) }
+      }
+    };
+
     renderSearchResults(parsed, query);
 
   } catch (e) {
     document.getElementById('s-loading').style.display = 'none';
-    document.getElementById('s-loading-text').textContent = 'Pulling recent eBay sales...';
+    document.getElementById('s-loading-text').textContent = 'Pulling live eBay sold listings...';
     document.getElementById('s-btn-text').textContent = 'Search';
     document.getElementById('s-empty').style.display = 'block';
-    document.getElementById('s-empty').querySelector('.empty-text').textContent = 'Search failed — check your connection and try again.';
+    document.getElementById('s-empty').querySelector('.empty-text').textContent =
+      e.message === 'No eBay token — enter credentials in Settings'
+        ? 'Connect eBay in Settings to search live listings'
+        : 'Search failed — try again or check your connection.';
   }
 }
 
